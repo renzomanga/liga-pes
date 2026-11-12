@@ -58,6 +58,32 @@ export function authorized(req, kind) {
   return !appPin || pin === appPin || (adminPin && aPin === adminPin);
 }
 
+// Datos del partido que se leen de la captura de PES (uno por lado). null = no se sabe.
+export const STAT_FIELDS = ['shots', 'onTarget', 'penalties', 'freeKicks', 'corners', 'fouls', 'offsides', 'yellow', 'red', 'possession'];
+
+function cleanStatSide(s) {
+  const out = {};
+  let any = false;
+  for (const f of STAT_FIELDS) {
+    const v = s && typeof s === 'object' ? s[f] : null;
+    const n = v === null || v === undefined || v === '' ? NaN : Number(v);
+    if (!Number.isFinite(n)) { out[f] = null; continue; }
+    out[f] = Math.max(0, Math.min(f === 'possession' ? 100 : 999, Math.round(n)));
+    any = true;
+  }
+  return any ? out : null;
+}
+
+// Devuelve {home, away} con números enteros o null, o null si no hay ningún dato.
+export function cleanStats(st) {
+  if (!st || typeof st !== 'object') return null;
+  const home = cleanStatSide(st.home);
+  const away = cleanStatSide(st.away);
+  if (!home && !away) return null;
+  const empty = Object.fromEntries(STAT_FIELDS.map((f) => [f, null]));
+  return { home: home || empty, away: away || { ...empty } };
+}
+
 export function authInfo() {
   return {
     pin: Boolean(process.env.APP_PIN),

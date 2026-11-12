@@ -8,6 +8,7 @@ App para cargar los partidos de PES entre amigos y ver estadísticas: tabla, rac
 - `api/state.js`: devuelve jugadores, juegos, ajustes y partidos.
 - `api/matches.js`: crea, edita y borra partidos.
 - `api/config.js`: guarda jugadores, juegos y nombre de la liga.
+- `api/extract.js`: lee con Gemini la captura de la pantalla "Datos del partido" del PES y devuelve los números (no guarda nada).
 - Base de datos: Upstash Redis (plan gratis, se conecta desde Vercel).
 
 ## Subirlo a Vercel
@@ -28,6 +29,19 @@ En **Settings → Environment Variables** podés agregar:
 - `ADMIN_PIN`: lo pide para cambiar jugadores, juegos y nombre de la liga. Si no lo ponés, usa `APP_PIN`.
 
 Cada dispositivo lo pide una vez y lo recuerda. Ver estadísticas no requiere PIN.
+
+## Datos del partido y pestaña Stats
+
+Al cargar un partido se puede subir una captura o foto de la pantalla "Datos del partido" del PES (disparos, al arco, penales, tiros libres, córners, faltas, offsides, tarjetas y posesión). Un modelo de Gemini la lee y completa los números, que se pueden corregir antes de guardar. La columna izquierda de la pantalla (J1) se carga como local; si quedó al revés, está el botón "Invertir columnas". La imagen no se guarda: solo los números, dentro del partido.
+
+Para que funcione, en **Settings → Environment Variables** de Vercel:
+
+- `GEMINI_API_KEY` (obligatoria): la clave de Google AI Studio. Queda solo en el servidor; el navegador nunca la ve.
+- `GEMINI_MODEL` (opcional): el modelo a usar. Por defecto, `gemini-2.5-flash`.
+
+Sin la clave, igual se pueden cargar los datos a mano. Leer una captura pide el mismo PIN que cargar partidos, para que nadie gaste la clave desde afuera.
+
+Con esos datos, la pestaña **Stats** arma fichas tipo cromo (ataque, puntería, posesión, defensa, arquero y garra, de 1 a 99), apodos automáticos (El Carnicero, Bilardista, Pólvora mojada, Pecho frío…), premios, gráficos de dispersión, el tarjetero y los récords. Los apodos y premios se calculan con reglas en `index.html` (funciones `playerBadges` y `awards`), así que se pueden ajustar o agregar.
 
 ## Cómo cuenta
 
@@ -50,6 +64,6 @@ vercel dev
 ## Datos en Redis
 
 - `pes:players`, `pes:games`, `pes:settings`: JSON.
-- `pes:matches`: hash `id → partido`. Cada partido se guarda por separado, así dos personas pueden cargar al mismo tiempo sin pisarse.
+- `pes:matches`: hash `id → partido`. Cada partido se guarda por separado, así dos personas pueden cargar al mismo tiempo sin pisarse. Si se cargaron los datos de la captura, van en `stats: {home, away}`.
 
 Desde Ajustes se puede descargar un respaldo JSON con todo.

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { redis, K, DEFAULT_GAMES, send, ensureDb, readBody, authorized } from './_lib.js';
+import { redis, K, DEFAULT_GAMES, send, ensureDb, readBody, authorized, cleanStats } from './_lib.js';
 
 async function validate(body) {
   const [players, games] = await Promise.all([redis.get(K.players), redis.get(K.games)]);
@@ -37,7 +37,11 @@ async function validate(body) {
 
   return {
     errs,
-    data: { date, gameId: body.gameId, home, away, penalties, note: String(body.note || '').trim().slice(0, 140) },
+    data: {
+      date, gameId: body.gameId, home, away, penalties,
+      stats: cleanStats(body.stats), // datos de la captura "Datos del partido", opcionales
+      note: String(body.note || '').trim().slice(0, 140),
+    },
   };
 }
 
