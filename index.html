@@ -254,7 +254,7 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 .tj-row{display:grid;grid-template-columns:110px minmax(0,1fr) 120px;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
 .tj-row:last-child{border-bottom:0}
 .tj-cards{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:20px}
-.yc,.rc{display:inline-block;width:12px;height:17px;border-radius:2px;transform:rotate(9deg);box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.yc,.rc{display:inline-block;width:12px;height:17px;border-radius:2px;transform:rotate(9deg);box-shadow:0 1px 2px rgba(0,0,0,.3);vertical-align:-2px}
 .yc{background:#f5c400}.rc{background:#e0281b}
 .rc{animation:wob 2.4s ease-in-out infinite}
 @keyframes wob{0%,80%,100%{transform:rotate(9deg)}85%{transform:rotate(-12deg)}90%{transform:rotate(14deg)}}
@@ -920,11 +920,11 @@ function playerBadges(p){
     const own = redTeam && redTeam[1].red >= 2 ? redTeam[0] : '';
     add(100 + p.rc, '🔪', own ? `El Carnicero del ${own}` : 'El Carnicero', `${plural(p.rc, 'roja', 'rojas')} en ${p.n} PJ${own ? ` (${redTeam[1].red} con el ${own})` : ''}. Juega con los tapones afilados.`);
   } else if (p.rc === 1){
-    add(42, '🟥', redTeam && redTeam[1].red ? `Prontuario en el ${redTeam[0]}` : 'Ya conoce la roja', 'Una expulsión en el historial. Queda en observación del comité de disciplina.');
+    add(42, '🚨', redTeam && redTeam[1].red ? `Prontuario en el ${redTeam[0]}` : 'Ya conoce la roja', 'Una expulsión en el historial. Queda en observación del comité de disciplina.');
   }
-  if (p.n >= 2 && p.yc / p.n >= 1.2) add(60, '🟨', 'Coleccionista de amarillas', `${plural(p.yc, 'amarilla', 'amarillas')} en ${p.n} PJ. Ya tiene el álbum casi lleno.`);
+  if (p.n >= 2 && p.yc / p.n >= 1.2) add(60, '📒', 'Coleccionista de amarillas', `${plural(p.yc, 'amarilla', 'amarillas')} en ${p.n} PJ. Ya tiene el álbum casi lleno.`);
   if (p.fo != null && p.fo >= 4) add(55, '🦵', 'Pierna fuerte', `${f1(p.fo)} faltas por partido. Al tobillo, siempre.`);
-  if (p.robbery >= 2 || (p.poss != null && p.poss <= 44 && p.winPct >= .5 && p.n >= 2)) add(70, '🧱', 'Bilardista', `Gana sin la pelota: ${p.poss != null ? Math.round(p.poss) + '% de posesión promedio' : plural(p.robbery, 'victoria', 'victorias') + ' con menos del 45%'}. El fin justifica los medios.`);
+  if ((p.robbery >= 2 && p.winPct >= .45) || (p.poss != null && p.poss <= 44 && p.winPct >= .5 && p.n >= 2)) add(70, '🧱', 'Bilardista', `Gana sin la pelota: ${p.poss != null ? Math.round(p.poss) + '% de posesión promedio' : plural(p.robbery, 'victoria', 'victorias') + ' con menos del 45%'}. El fin justifica los medios.`);
   else if (p.poss != null && p.poss >= 56) add(65, '🧠', 'Tiki-taka de living', `${Math.round(p.poss)}% de posesión promedio. La pisa, la toca y te duerme.`);
   if (p.sterile >= 2) add(50, '🥱', 'Posesión estéril', `${p.sterile} veces tuvo más la pelota y perdió igual.`);
   if (p.sh != null && p.sh >= 10 && p.acc != null && p.acc < .35) add(62, '💧', 'Pólvora mojada', `${f1(p.sh)} tiros por partido y solo el ${pct(p.acc)} va al arco.`);
@@ -1067,7 +1067,11 @@ function viewStats(){
 
   const tarjetero = [...list].sort((a, b) => b.garra - a.garra);
   const maxFo = Math.max(1, ...list.map(p => p.fo ?? 0));
-  const icons = (n, cls) => n > 10 ? `${'<i class="' + cls + '"></i>'.repeat(10)}<span class="tj-fouls">+${n - 10}</span>` : `<i class="${cls}"></i>`.repeat(n);
+  // Hasta 12 tarjetas dibujadas (primero las rojas); el resto, como número.
+  const cardIcons = (rc, yc) => {
+    const r = Math.min(rc, 12), y = Math.min(yc, 12 - r), rest = rc + yc - r - y;
+    return '<i class="rc"></i>'.repeat(r) + '<i class="yc"></i>'.repeat(y) + (rest ? `<span class="tj-fouls">+${rest}</span>` : '');
+  };
 
   return filters + `
   <p class="st-note">Sale de ${plural(ms.length, 'partido', 'partidos')} con datos${all.length > ms.length ? ` (de ${all.length} jugados)` : ''}. Tocá una ficha para ver al jugador en detalle.</p>
@@ -1090,9 +1094,9 @@ function viewStats(){
     <div class="facts" style="margin-top:14px">
       <span><b>${sel.n}</b> PJ con datos</span><span><b>${sel.w}-${sel.d}-${sel.l}</b> G-E-P</span><span>Goles <b>${sel.gf}</b> a <b>${sel.ga}</b></span>
       ${sel.sh != null ? `<span><b>${f1(sel.sh)}</b> tiros por partido</span>` : ''}${sel.poss != null ? `<span><b>${Math.round(sel.poss)}%</b> de posesión</span>` : ''}
-      <span><b>${sel.yc}</b> 🟨 <b>${sel.rc}</b> 🟥</span>
+      <span><b>${sel.yc}</b> <i class="yc" title="Amarillas"></i>&nbsp; <b>${sel.rc}</b> <i class="rc" title="Rojas"></i></span>
     </div>
-    ${teams.length ? `<div class="scroll" style="margin-top:12px"><table class="tbl"><thead><tr><th class="l">Con cada equipo</th><th>PJ</th><th>G-E-P</th><th>Faltas</th><th>🟨</th><th>🟥</th></tr></thead>
+    ${teams.length ? `<div class="scroll" style="margin-top:12px"><table class="tbl"><thead><tr><th class="l">Con cada equipo</th><th>PJ</th><th>G-E-P</th><th>Faltas</th><th><i class="yc" title="Amarillas"></i></th><th><i class="rc" title="Rojas"></i></th></tr></thead>
       <tbody>${teams.map(([t, v]) => `<tr><td class="l">${esc(t)}</td><td>${v.n}</td><td>${v.w}-${v.d}-${v.l}</td><td>${v.fouls}</td><td>${v.yellow}</td><td>${v.red}</td></tr>`).join('')}</tbody></table></div>` : ''}
   </section>
 
@@ -1106,12 +1110,12 @@ function viewStats(){
     ${chartPoss ? `<section class="card" style="margin:0"><h2>Posesión contra victorias</h2>${chartPoss}</section>` : ''}
   </div>` : ''}
 
-  <h2 class="sec-t">🟥 El tarjetero</h2>
+  <h2 class="sec-t"><i class="rc"></i>&nbsp; El tarjetero</h2>
   <p class="sec-s">Ordenado de más a menos leñero.</p>
   <section class="card">${tarjetero.map(p => `<div class="tj-row">
     <span>${plTag(p.id)}</span>
-    <span class="tj-cards">${p.yc || p.rc ? icons(p.rc, 'rc') + icons(p.yc, 'yc') : '<span class="tj-none">Sin tarjetas 😇</span>'}</span>
-    <span class="tj-fouls">${p.fo != null ? `${f1(p.fo)} faltas por PJ<span class="sbar"><i style="width:${(p.fo / maxFo) * 100}%;background:${pcolor(p.id)}"></i></span>` : 'Sin datos de faltas'}</span>
+    <span class="tj-cards">${p.yc || p.rc ? cardIcons(p.rc, p.yc) : '<span class="tj-none">Sin tarjetas 😇</span>'}</span>
+    <span class="tj-fouls">${p.fo != null ? `${f1(p.fo)} ${p.fo === 1 ? 'falta' : 'faltas'} por PJ<span class="sbar"><i style="width:${(p.fo / maxFo) * 100}%;background:${pcolor(p.id)}"></i></span>` : 'Sin datos de faltas'}</span>
   </div>`).join('')}</section>
 
   ${(() => { const rs = records(ms); return rs.length ? `<h2 class="sec-t">🏛️ Partidos para el museo</h2>
