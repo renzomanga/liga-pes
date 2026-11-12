@@ -114,6 +114,17 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 .board button:active{background:var(--board-line)}
 .board input{flex:1;min-width:0;width:60px;border:0;border-left:1px solid var(--board-line);border-right:1px solid var(--board-line);background:transparent;color:var(--board-ink);text-align:center;font:800 46px/1 var(--display);padding:6px 0;font-variant-numeric:tabular-nums;text-shadow:0 0 14px rgba(255,191,31,.35);-moz-appearance:textfield}
 .board input::-webkit-outer-spin-button,.board input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pen{background:var(--surface-2);border-radius:var(--r-m);padding:12px 14px;margin:-4px 0 16px}
+.pen[hidden]{display:none}
+.pen-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:10px}
+.pen .board button{width:38px}
+.pen-grid .lbl{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.pen .board input{font-size:34px}
+.m-mid{display:flex;flex-direction:column;align-items:center;gap:3px}
+.m-pen{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+.mv{display:flex;gap:2px}
+.mv button{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);font-weight:700;line-height:1}
+.mv button:disabled{opacity:.3}
 .editing{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--accent-soft);border-radius:var(--r-m);padding:8px 14px;margin-bottom:14px;font-weight:600}
 @media (max-width:599px){
   .versus{grid-template-columns:1fr}
@@ -226,6 +237,8 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 
 <script>
 /* ---------- estado ---------- */
+// Puntos: ganar 3, empatar 1. Si el empate se define por penales, el que gana la tanda suma PEN_WIN y el que pierde PEN_LOSS.
+const PTS = {win:3, draw:1, PEN_WIN:2, PEN_LOSS:1};
 const PALETTE = ['#e4572e','#2e86de','#f2b705','#8e44ad','#16a085','#e84393','#ff7f11','#5c6bc0','#00a8a8','#a0522d'];
 const TABS = [
   {id:'cargar', label:'Cargar', icon:'<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>'},
@@ -327,16 +340,18 @@ function filterMatches(f){
 function computeTable(ms){
   const rows = new Map();
   const row = id => {
-    if (!rows.has(id)) rows.set(id, {id, pj:0, g:0, e:0, p:0, gf:0, gc:0, form:[], streak:{t:null, n:0}, run:0, best:0, teams:{}});
+    if (!rows.has(id)) rows.set(id, {id, pj:0, g:0, e:0, p:0, gf:0, gc:0, pw:0, pl:0, form:[], streak:{t:null, n:0}, run:0, best:0, teams:{}});
     return rows.get(id);
   };
   for (const m of chrono(ms)){
-    for (const [mine, opp] of [[m.home, m.away], [m.away, m.home]]){
+    for (const [mine, opp, mk, ok] of [[m.home, m.away, 'home', 'away'], [m.away, m.home, 'away', 'home']]){
       const res = mine.goals > opp.goals ? 'W' : mine.goals < opp.goals ? 'L' : 'D';
+      const penWon = res === 'D' && m.penalties ? m.penalties[mk] > m.penalties[ok] : null;
       for (const id of mine.players){
         const r = row(id);
         r.pj++; r.gf += mine.goals; r.gc += opp.goals;
         if (res === 'W') r.g++; else if (res === 'D') r.e++; else r.p++;
+        if (penWon === true) r.pw++; else if (penWon === false) r.pl++;
         r.form.push(res);
         r.streak = r.streak.t === res ? {t:res, n:r.streak.n + 1} : {t:res, n:1};
         r.run = res === 'W' ? r.run + 1 : 0; r.best = Math.max(r.best, r.run);
@@ -345,10 +360,13 @@ function computeTable(ms){
     }
   }
   return [...rows.values()].map(r => ({
-    ...r, pts: r.g*3 + r.e, dg: r.gf - r.gc, pct: r.pj ? r.g / r.pj : 0, ppp: r.pj ? (r.g*3 + r.e) / r.pj : 0,
+    ...r, pts: pointsOf(r), dg: r.gf - r.gc, pct: r.pj ? r.g / r.pj : 0, ppp: r.pj ? pointsOf(r) / r.pj : 0,
     form: r.form.slice(-5),
     fav: Object.entries(r.teams).sort((a,b) => b[1] - a[1])[0]?.[0] || '',
   }));
+}
+function pointsOf(r){
+  return r.g*PTS.win + (r.e - r.pw - r.pl)*PTS.draw + r.pw*PTS.PEN_WIN + r.pl*PTS.PEN_LOSS;
 }
 function sortRows(rows, by){
   const tie = (a,b) => b.dg - a.dg || b.gf - a.gf || pname(a.id).localeCompare(pname(b.id));
@@ -398,9 +416,12 @@ function emptyBox(title, text, act, btn){
 }
 
 function newForm(){
-  const last = store.get('pes.lastGame');
-  const g = activeGames().find(x => x.id === last) || activeGames()[0];
-  return {date: today(), gameId: g?.id || '', home:{players:[], team:'', goals:0}, away:{players:[], team:'', goals:0}, note:''};
+  const g = activeGames()[0];
+  return {date: today(), gameId: g?.id || '', home:{players:[], team:'', goals:0}, away:{players:[], team:'', goals:0}, pen:{on:false, home:0, away:0}, note:''};
+}
+const tied = f => (Number(f.home.goals) || 0) === (Number(f.away.goals) || 0);
+function syncPen(){
+  const w = $('#pen-wrap'); if (w && ui.form) w.hidden = !tied(ui.form);
 }
 
 function viewCargar(){
@@ -418,6 +439,16 @@ function viewCargar(){
       ${sideBlock('home', 'Local')}
       <div class="vs-mid"><b>vs</b><button class="icon-btn" data-act="swap" title="Invertir local y visitante" aria-label="Invertir local y visitante">${icon('<path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3"/>')}</button></div>
       ${sideBlock('away', 'Visitante')}
+    </div>
+    <div class="pen" id="pen-wrap" ${tied(f) ? '' : 'hidden'}>
+      <label class="chk"><input type="checkbox" data-act="pen-toggle" ${f.pen.on ? 'checked' : ''}> Se definió por penales</label>
+      ${f.pen.on ? `<div class="pen-grid">${['home','away'].map(sd => `<div>
+        <div class="lbl">Penales ${sd === 'home' ? 'local' : 'visitante'}</div>
+        <div class="board">
+          <button data-act="pgoal" data-side="${sd}" data-d="-1" aria-label="Restar penal">−</button>
+          <input type="number" inputmode="numeric" min="0" max="99" data-bind="pen.${sd}" value="${f.pen[sd]}" aria-label="Penales ${sd === 'home' ? 'local' : 'visitante'}">
+          <button data-act="pgoal" data-side="${sd}" data-d="1" aria-label="Sumar penal">+</button>
+        </div></div>`).join('')}</div>` : ''}
     </div>
     <label class="field"><span>Nota (opcional)</span><input data-bind="note" maxlength="140" value="${esc(f.note)}" placeholder="Ej.: lo dio vuelta en el descuento"></label>
     <button class="btn primary big" data-act="save" ${ui.busy ? 'disabled' : ''}>${ui.editingId ? 'Guardar cambios' : 'Guardar partido'}</button>
@@ -479,16 +510,16 @@ function viewTabla(){
     <div><div class="k">Partidos</div><div class="v">${ms.length}</div><div class="s">${goals} goles, ${(goals/ms.length).toFixed(1)} por partido</div></div>
   </div>
   <section class="card table-card"><div class="scroll"><table class="tbl">
-    <thead><tr><th class="pos">#</th><th class="l">Jugador</th><th>Pts</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th>% G</th><th class="l">Últimos 5</th><th class="l">Equipo más usado</th></tr></thead>
+    <thead><tr><th class="pos">#</th><th class="l">Jugador</th><th>Pts</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th title="Tandas de penales ganadas y perdidas">Pen.</th><th>% G</th><th class="l">Últimos 5</th><th class="l">Equipo más usado</th></tr></thead>
     <tbody>${rows.map((r,i) => `<tr>
       <td class="pos">${i+1}</td><td class="l">${plTag(r.id)}</td><td class="pts">${r.pts}</td>
       <td>${r.pj}</td><td>${r.g}</td><td>${r.e}</td><td>${r.p}</td><td>${r.gf}</td><td>${r.gc}</td>
-      <td>${r.dg > 0 ? '+' : ''}${r.dg}</td><td>${pct(r.pct)}</td>
+      <td>${r.dg > 0 ? '+' : ''}${r.dg}</td><td>${r.pw || r.pl ? `${r.pw}-${r.pl}` : '–'}</td><td>${pct(r.pct)}</td>
       <td class="l"><span class="form">${r.form.map(x => `<span class="f-${x}" title="${{W:'Ganó',D:'Empató',L:'Perdió'}[x]}">${{W:'G',D:'E',L:'P'}[x]}</span>`).join('')}</span></td>
       <td class="l">${esc(r.fav) || '<span style="color:var(--muted)">Sin datos</span>'}</td>
     </tr>`).join('')}</tbody>
   </table></div></section>
-  <p class="foot">Ganar suma 3 puntos y empatar, 1. En los partidos de a dos (2 vs 1, 2 vs 2) el resultado y los goles del lado cuentan para cada jugador de ese lado.</p>`;
+  <p class="foot">Ganar suma 3 puntos y empatar, 1. Si el empate se define por penales, el que gana la tanda suma 2 y el que pierde 1; en la columna Pen. van las tandas ganadas y perdidas. En los partidos de a dos (2 vs 1, 2 vs 2) el resultado y los goles del lado cuentan para cada jugador de ese lado.</p>`;
 }
 
 function viewH2H(){
@@ -501,11 +532,15 @@ function viewH2H(){
   const base = filterMatches({game:h.game});
   const ms = chrono(base.filter(m => (h.teams || isSolo(m)) &&
     ((m.home.players.includes(h.a) && m.away.players.includes(h.b)) || (m.home.players.includes(h.b) && m.away.players.includes(h.a))))).reverse();
-  let aw = 0, d = 0, bw = 0, ag = 0, bg = 0;
+  let aw = 0, d = 0, bw = 0, ag = 0, bg = 0, ap = 0, bp = 0;
   for (const m of ms){
-    const [A, B] = m.home.players.includes(h.a) ? [m.home, m.away] : [m.away, m.home];
+    const aHome = m.home.players.includes(h.a);
+    const [A, B] = aHome ? [m.home, m.away] : [m.away, m.home];
     ag += A.goals; bg += B.goals;
-    if (A.goals > B.goals) aw++; else if (A.goals < B.goals) bw++; else d++;
+    if (A.goals > B.goals) aw++; else if (A.goals < B.goals) bw++; else {
+      d++;
+      if (m.penalties){ const [pa, pb] = aHome ? [m.penalties.home, m.penalties.away] : [m.penalties.away, m.penalties.home]; if (pa > pb) ap++; else bp++; }
+    }
   }
   const big = biggestWin(ms);
 
@@ -541,7 +576,7 @@ function viewH2H(){
       <div style="--pc:${pcolor(h.b)}"><div class="who">${esc(pname(h.b))}</div><div class="n">${bw}</div><div class="lbl">${bw === 1 ? 'victoria' : 'victorias'}</div></div>
     </div>
     <div class="bar"><span style="flex:${aw};background:${pcolor(h.a)}"></span><span style="flex:${d};background:var(--draw)"></span><span style="flex:${bw};background:${pcolor(h.b)}"></span></div>
-    <div class="facts"><span><b>${ms.length}</b> ${ms.length === 1 ? 'partido' : 'partidos'}</span><span>Goles: <b>${ag}</b> a <b>${bg}</b></span>${big ? `<span>Mayor goleada: <b>${scoreLine(big)}</b></span>` : ''}</div>
+    <div class="facts"><span><b>${ms.length}</b> ${ms.length === 1 ? 'partido' : 'partidos'}</span><span>Goles: <b>${ag}</b> a <b>${bg}</b></span>${ap || bp ? `<span>Penales: <b>${esc(pname(h.a))} ${ap}</b>, <b>${esc(pname(h.b))} ${bp}</b></span>` : ''}${big ? `<span>Mayor goleada: <b>${scoreLine(big)}</b></span>` : ''}</div>
     ` : `<p class="hint">Todavía no jugaron entre ellos${h.game !== 'all' ? ' en este juego' : ''}${h.teams ? '' : ' en 1 vs 1'}.</p>`}
   </section>
   ${ms.length ? `<h2 style="margin-top:22px">Sus partidos</h2>${ms.slice(0, 12).map(m => matchCard(m, false)).join('')}` : ''}
@@ -555,13 +590,15 @@ function viewH2H(){
 
 function matchCard(m, actions){
   const g = gameById(m.gameId);
-  const hw = m.home.goals > m.away.goals, aw = m.away.goals > m.home.goals;
+  const pen = m.home.goals === m.away.goals && m.penalties;
+  const hw = m.home.goals > m.away.goals || (pen && m.penalties.home > m.penalties.away);
+  const aw = m.away.goals > m.home.goals || (pen && m.penalties.away > m.penalties.home);
   const side = s => `<div class="m-names">${s.players.map(plTag).join('<i class="plus">+</i>')}</div>${s.team ? `<div class="m-team">${esc(s.team)}</div>` : ''}`;
   return `<article class="match">
     <div class="m-meta"><span class="tag">${esc(g?.name || 'Juego borrado')}</span><span>${fmtDate(m.date)}</span></div>
     <div class="m-body">
       <div class="m-side ${hw ? 'win' : ''}">${side(m.home)}</div>
-      <div class="m-score"><span>${m.home.goals}</span><i>-</i><span>${m.away.goals}</span></div>
+      <div class="m-mid"><div class="m-score"><span>${m.home.goals}</span><i>-</i><span>${m.away.goals}</span></div>${pen ? `<div class="m-pen">${m.penalties.home}-${m.penalties.away} por penales</div>` : ''}</div>
       <div class="m-side right ${aw ? 'win' : ''}">${side(m.away)}</div>
     </div>
     ${m.note ? `<div class="m-note">${esc(m.note)}</div>` : ''}
@@ -613,10 +650,11 @@ function viewAjustes(){
     <div class="card-head"><h2>Juegos</h2><button class="btn small" data-act="add-game">Agregar juego</button></div>
     ${c.games.map((g,i) => `<div class="cfg-row nocolor ${g.active === false ? 'arch' : ''}">
       <input data-cfg="games" data-i="${i}" data-k="name" value="${esc(g.name)}" placeholder="Ej.: PES 2013" maxlength="30" aria-label="Nombre del juego">
-      <div class="cfg-side">${usedG[g.id]
+      <div class="cfg-side"><div class="mv"><button data-act="mv-game" data-i="${i}" data-d="-1" ${i === 0 ? 'disabled' : ''} aria-label="Subir">↑</button><button data-act="mv-game" data-i="${i}" data-d="1" ${i === c.games.length - 1 ? 'disabled' : ''} aria-label="Bajar">↓</button></div>${usedG[g.id]
         ? `<label class="chk"><input type="checkbox" data-cfg="games" data-i="${i}" data-k="active" ${g.active !== false ? 'checked' : ''}> Activo</label><span class="cnt">${usedG[g.id]} PJ</span>`
         : `<button class="link danger" data-act="rm-game" data-i="${i}">Quitar</button>`}</div>
     </div>`).join('')}
+    <p class="hint">El primero de la lista es el que aparece elegido al cargar un partido.</p>
   </section>
   ${dirty ? `<div class="save-bar"><button class="btn primary" data-act="save-cfg" ${ui.busy ? 'disabled' : ''}>Guardar ajustes</button><button class="btn" data-act="reset-cfg">Descartar</button></div>` : ''}
   ${a.pin || a.admin ? `<section class="card"><h2>PIN en este dispositivo</h2>
@@ -644,28 +682,43 @@ const actions = {
     s.players = s.players.includes(id) ? s.players.filter(x => x !== id) : [...s.players, id];
     render();
   },
-  'swap': () => { const f = ui.form; [f.home, f.away] = [f.away, f.home]; render(); },
+  'swap': () => { const f = ui.form; [f.home, f.away] = [f.away, f.home]; [f.pen.home, f.pen.away] = [f.pen.away, f.pen.home]; render(); },
+  'pen-toggle': b => { ui.form.pen.on = b.checked; render(); },
+  'pgoal': b => {
+    const p = ui.form.pen, k = b.dataset.side;
+    p[k] = Math.max(0, Math.min(99, (Number(p[k]) || 0) + Number(b.dataset.d)));
+    const inp = $(`input[data-bind="pen.${k}"]`); if (inp) inp.value = p[k];
+  },
+  'mv-game': b => {
+    const g = ui.cfg.games, i = +b.dataset.i, j = i + Number(b.dataset.d);
+    if (j < 0 || j >= g.length) return;
+    [g[i], g[j]] = [g[j], g[i]]; render();
+  },
   'goal': b => {
     const s = ui.form[b.dataset.side];
     s.goals = Math.max(0, Math.min(99, (Number(s.goals) || 0) + Number(b.dataset.d)));
     const inp = $(`input[data-bind="${b.dataset.side}.goals"]`); if (inp) inp.value = s.goals;
+    syncPen();
   },
   'cancel-edit': () => { ui.editingId = null; ui.form = newForm(); render(); },
   'save': async () => {
     const f = ui.form;
     if (!f.gameId) return toast('Elegí el juego', true);
     if (!f.home.players.length || !f.away.players.length) return toast('Elegí quién jugó de cada lado', true);
-    const body = JSON.stringify({...f, home:{...f.home, goals:Number(f.home.goals) || 0}, away:{...f.away, goals:Number(f.away.goals) || 0}});
+    const usePen = f.pen.on && tied(f);
+    if (usePen && (Number(f.pen.home) || 0) === (Number(f.pen.away) || 0)) return toast('En los penales tiene que haber un ganador', true);
+    const {pen, ...rest} = f;
+    const body = JSON.stringify({...rest, home:{...f.home, goals:Number(f.home.goals) || 0}, away:{...f.away, goals:Number(f.away.goals) || 0},
+      penalties: usePen ? {home:Number(pen.home) || 0, away:Number(pen.away) || 0} : null});
     const editing = ui.editingId;
     ui.busy = true; render();
     try {
       await withPin('match', () => editing
         ? api(`/api/matches?id=${encodeURIComponent(editing)}`, {method:'PUT', body})
         : api('/api/matches', {method:'POST', body}));
-      store.set('pes.lastGame', f.gameId);
       if (editing){ ui.editingId = null; ui.form = newForm(); ui.busy = false; await refresh(); go('historial'); toast('Partido actualizado'); }
       else {
-        f.home.goals = 0; f.away.goals = 0; f.note = '';
+        f.home.goals = 0; f.away.goals = 0; f.pen = {on:false, home:0, away:0}; f.note = '';
         ui.busy = false; await refresh(); toast('Partido guardado. Los jugadores quedan elegidos para la revancha.');
       }
     } catch (e){ ui.busy = false; render(); toast(e.message, true); }
@@ -673,7 +726,8 @@ const actions = {
   'edit': b => {
     const m = state.matches.find(x => x.id === b.dataset.id); if (!m) return;
     ui.editingId = m.id;
-    ui.form = clone({date:m.date, gameId:m.gameId, home:m.home, away:m.away, note:m.note || ''});
+    ui.form = clone({date:m.date, gameId:m.gameId, home:m.home, away:m.away, note:m.note || '',
+      pen: m.penalties ? {on:true, home:m.penalties.home, away:m.penalties.away} : {on:false, home:0, away:0}});
     go('cargar');
   },
   'del': async b => {
@@ -732,7 +786,7 @@ document.addEventListener('input', e => {
   const el = e.target;
   if (el.dataset.bind && ui.form){
     const [a, b] = el.dataset.bind.split('.');
-    if (b === 'goals'){ const n = parseInt(el.value, 10); ui.form[a].goals = isNaN(n) ? 0 : Math.max(0, Math.min(99, n)); }
+    if (b === 'goals' || a === 'pen'){ const n = parseInt(el.value, 10); ui.form[a][b] = isNaN(n) ? 0 : Math.max(0, Math.min(99, n)); if (b === 'goals') syncPen(); }
     else if (b) ui.form[a][b] = el.value;
     else ui.form[a] = el.value;
   }
