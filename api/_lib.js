@@ -16,8 +16,8 @@ export const K = {
 };
 
 export const DEFAULT_GAMES = [
-  { id: 'pes6', name: 'PES 6', active: true },
   { id: 'pes2011', name: 'PES 2011', active: true },
+  { id: 'pes6', name: 'PES 6', active: true },
 ];
 
 export const DEFAULT_SETTINGS = { leagueName: 'Liga PES' };

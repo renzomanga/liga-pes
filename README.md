@@ -32,6 +32,8 @@ Cada dispositivo lo pide una vez y lo recuerda. Ver estadísticas no requiere PI
 ## Cómo cuenta
 
 - Ganar 3 puntos, empatar 1.
+- Si un empate se define por penales, el que gana la tanda suma 2 y el que pierde 1. Se cambia en la constante `PTS` al principio del script de `index.html`.
+- El primer juego de la lista en Ajustes es el que aparece elegido al cargar. El orden se cambia con las flechas.
 - En partidos de a dos (2 vs 1, 2 vs 2), el resultado y los goles del lado cuentan para cada jugador de ese lado. Con el filtro de modalidad se ven solo los 1 vs 1.
 - Jugadores o juegos con partidos no se borran: se desmarcan como activos y sus estadísticas quedan.
 

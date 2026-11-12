@@ -23,9 +23,21 @@ async function validate(body) {
   const away = side(body.away, 'visitante');
   if (home.players.some((id) => away.players.includes(id))) errs.push('Un jugador no puede estar en los dos lados');
 
+  // Penales: solo si terminó empatado en goles, y la tanda tiene que tener ganador.
+  let penalties = null;
+  const pen = body.penalties;
+  if (pen && typeof pen === 'object') {
+    const ph = Number(pen.home);
+    const pa = Number(pen.away);
+    if (home.goals !== away.goals) errs.push('Solo puede haber penales si el partido terminó empatado');
+    else if (![ph, pa].every((n) => Number.isInteger(n) && n >= 0 && n <= 99)) errs.push('Los penales tienen que ser números entre 0 y 99');
+    else if (ph === pa) errs.push('En los penales tiene que haber un ganador');
+    else penalties = { home: ph, away: pa };
+  }
+
   return {
     errs,
-    data: { date, gameId: body.gameId, home, away, note: String(body.note || '').trim().slice(0, 140) },
+    data: { date, gameId: body.gameId, home, away, penalties, note: String(body.note || '').trim().slice(0, 140) },
   };
 }
 
