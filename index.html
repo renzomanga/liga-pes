@@ -158,6 +158,8 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 .tbl .l{text-align:left}
 .tbl .pos{color:var(--muted);width:28px}
 .tbl .pts{font:800 19px/1 var(--display)}
+.tbl tr.sep td{text-align:left;color:var(--muted);font-size:13px;padding:16px 8px 8px;white-space:normal}
+.tbl tr.few td{color:var(--muted)}
 .pl{display:inline-flex;align-items:center;gap:8px;font-weight:600}
 .pl::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--pc);flex:none}
 .pl.arch{color:var(--muted);font-weight:500}
@@ -239,6 +241,9 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 /* ---------- estado ---------- */
 // Puntos: ganar 3, empatar 1. Si el empate se define por penales, el que gana la tanda suma PEN_WIN y el que pierde PEN_LOSS.
 const PTS = {win:3, draw:1, PEN_WIN:2, PEN_LOSS:1};
+// Al ordenar por promedio (puntos por partido o % de victorias), entra en el orden quien jugó al menos
+// esta parte de los partidos del que más jugó. El resto va abajo, aparte, hasta que juegue más.
+const MIN_SHARE = 1/3;
 const PALETTE = ['#e4572e','#2e86de','#f2b705','#8e44ad','#16a085','#e84393','#ff7f11','#5c6bc0','#00a8a8','#a0522d'];
 const TABS = [
   {id:'cargar', label:'Cargar', icon:'<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>'},
@@ -251,7 +256,7 @@ const TABS = [
 const state = {players:[], games:[], matches:[], settings:{leagueName:'Liga PES'}, auth:{}, loaded:false, error:null};
 const ui = {
   tab: 'cargar', form: null, editingId: null, busy: false, cfg: null,
-  filters: {game:'all', mode:'all', period:'all', sort:'pts'},
+  filters: {game:'all', mode:'all', period:'all', sort:'ppp'},
   h2h: {a:null, b:null, game:'all', teams:false},
   hist: {player:'all', game:'all'},
 };
@@ -375,8 +380,13 @@ function sortRows(rows, by){
     ppp: (a,b) => b.ppp - a.ppp || b.pj - a.pj || tie(a,b),
     pct: (a,b) => b.pct - a.pct || b.pj - a.pj || tie(a,b),
     dg:  (a,b) => b.dg - a.dg || b.pts - a.pts || tie(a,b),
-  }[by] || ((a,b) => b.pts - a.pts || tie(a,b));
+  }[by] || ((a,b) => b.ppp - a.ppp || b.pj - a.pj || tie(a,b));
   return rows.sort(f);
+}
+// Mínimo de PJ para que un promedio cuente: una parte (MIN_SHARE) de los PJ del que más jugó.
+function minPJ(rows){
+  const most = Math.max(0, ...rows.map(r => r.pj));
+  return Math.max(1, Math.ceil(most * MIN_SHARE));
 }
 function biggestWin(ms){
   let best = null;
@@ -489,15 +499,28 @@ function viewTabla(){
     ${selectBox('filters','game', f.game, gameOpts(), 'Juego')}
     ${selectBox('filters','mode', f.mode, [['all','Todos'],['1v1','Solo 1 vs 1'],['teams','De a dos o más']], 'Modalidad')}
     ${selectBox('filters','period', f.period, [['all','Desde siempre'],['year','Este año'],['month','Este mes'],['30','Últimos 30 días']], 'Período')}
-    ${selectBox('filters','sort', f.sort, [['pts','Puntos'],['ppp','Puntos por partido'],['pct','% de victorias'],['dg','Diferencia de gol']], 'Ordenar por')}
+    ${selectBox('filters','sort', f.sort, [['ppp','Puntos por partido'],['pct','% de victorias'],['pts','Puntos totales'],['dg','Diferencia de gol']], 'Ordenar por')}
   </div>`;
   if (!ms.length) return filters + emptyBox('Sin partidos para mostrar', state.matches.length ? 'Probá con otros filtros.' : 'Cargá el primer partido y acá aparece la tabla.', state.matches.length ? '' : 'go-cargar', 'Cargar partido');
 
-  const lead = rows[0];
-  const leadVal = {pts:`${lead.pts} pts`, ppp:`${lead.ppp.toFixed(2)} pts por partido`, pct:`${pct(lead.pct)} de victorias`, dg:`${lead.dg > 0 ? '+' : ''}${lead.dg} de diferencia`}[f.sort];
+  // Con promedios, quien jugó muy poco va aparte: si no, 1 partido ganado sería 100%.
+  const min = minPJ(rows);
+  const byAvg = f.sort === 'ppp' || f.sort === 'pct';
+  const ranked = byAvg ? rows.filter(r => r.pj >= min) : rows;
+  const few = byAvg ? rows.filter(r => r.pj < min) : [];
+  const lead = ranked[0];
+  const leadVal = {pts:`${lead.pts} pts`, ppp:`${lead.ppp.toFixed(2)} pts por partido en ${lead.pj} PJ`, pct:`${pct(lead.pct)} de victorias en ${lead.pj} PJ`, dg:`${lead.dg > 0 ? '+' : ''}${lead.dg} de diferencia`}[f.sort];
   const hot = [...rows].filter(r => r.streak.t === 'W').sort((a,b) => b.streak.n - a.streak.n)[0];
   const streak = hot && {id: hot.id, n: hot.streak.n};
-  const scorer = [...rows].sort((a,b) => b.gf/b.pj - a.gf/a.pj)[0];
+  const scorer = rows.filter(r => r.pj >= min).sort((a,b) => b.gf/b.pj - a.gf/a.pj)[0];
+  const hi = key => f.sort === key ? 'pts' : '';
+  const rowHtml = (r, pos) => `<tr${pos ? '' : ' class="few"'}>
+      <td class="pos">${pos || '–'}</td><td class="l">${plTag(r.id)}</td><td class="${hi('ppp')}">${r.ppp.toFixed(2)}</td><td class="${hi('pts')}">${r.pts}</td>
+      <td>${r.pj}</td><td>${r.g}</td><td>${r.e}</td><td>${r.p}</td><td>${r.gf}</td><td>${r.gc}</td>
+      <td class="${hi('dg')}">${r.dg > 0 ? '+' : ''}${r.dg}</td><td>${r.pw || r.pl ? `${r.pw}-${r.pl}` : '–'}</td><td class="${hi('pct')}">${pct(r.pct)}</td>
+      <td class="l"><span class="form">${r.form.map(x => `<span class="f-${x}" title="${{W:'Ganó',D:'Empató',L:'Perdió'}[x]}">${{W:'G',D:'E',L:'P'}[x]}</span>`).join('')}</span></td>
+      <td class="l">${esc(r.fav) || '<span style="color:var(--muted)">Sin datos</span>'}</td>
+    </tr>`;
   const big = biggestWin(ms);
   const goals = ms.reduce((s,m) => s + m.home.goals + m.away.goals, 0);
 
@@ -510,16 +533,10 @@ function viewTabla(){
     <div><div class="k">Partidos</div><div class="v">${ms.length}</div><div class="s">${goals} goles, ${(goals/ms.length).toFixed(1)} por partido</div></div>
   </div>
   <section class="card table-card"><div class="scroll"><table class="tbl">
-    <thead><tr><th class="pos">#</th><th class="l">Jugador</th><th>Pts</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th title="Tandas de penales ganadas y perdidas">Pen.</th><th>% G</th><th class="l">Últimos 5</th><th class="l">Equipo más usado</th></tr></thead>
-    <tbody>${rows.map((r,i) => `<tr>
-      <td class="pos">${i+1}</td><td class="l">${plTag(r.id)}</td><td class="pts">${r.pts}</td>
-      <td>${r.pj}</td><td>${r.g}</td><td>${r.e}</td><td>${r.p}</td><td>${r.gf}</td><td>${r.gc}</td>
-      <td>${r.dg > 0 ? '+' : ''}${r.dg}</td><td>${r.pw || r.pl ? `${r.pw}-${r.pl}` : '–'}</td><td>${pct(r.pct)}</td>
-      <td class="l"><span class="form">${r.form.map(x => `<span class="f-${x}" title="${{W:'Ganó',D:'Empató',L:'Perdió'}[x]}">${{W:'G',D:'E',L:'P'}[x]}</span>`).join('')}</span></td>
-      <td class="l">${esc(r.fav) || '<span style="color:var(--muted)">Sin datos</span>'}</td>
-    </tr>`).join('')}</tbody>
+    <thead><tr><th class="pos">#</th><th class="l">Jugador</th><th title="Puntos por partido jugado">Pts/PJ</th><th>Pts</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th>DG</th><th title="Tandas de penales ganadas y perdidas">Pen.</th><th>% G</th><th class="l">Últimos 5</th><th class="l">Equipo más usado</th></tr></thead>
+    <tbody>${ranked.map((r,i) => rowHtml(r, i+1)).join('')}${few.length ? `<tr class="sep"><td colspan="15">Con pocos partidos (menos de ${min} PJ): no entran en el orden hasta jugar más</td></tr>${few.map(r => rowHtml(r, 0)).join('')}` : ''}</tbody>
   </table></div></section>
-  <p class="foot">Ganar suma 3 puntos y empatar, 1. Si el empate se define por penales, el que gana la tanda suma 2 y el que pierde 1; en la columna Pen. van las tandas ganadas y perdidas. En los partidos de a dos (2 vs 1, 2 vs 2) el resultado y los goles del lado cuentan para cada jugador de ese lado.</p>`;
+  <p class="foot">Ganar suma 3 puntos y empatar, 1. Si el empate se define por penales, el que gana la tanda suma 2 y el que pierde 1; en la columna Pen. van las tandas ganadas y perdidas. Como no todos juegan la misma cantidad de partidos, la tabla se ordena por puntos por partido. Para entrar en el orden hay que haber jugado al menos un tercio de los partidos del que más jugó (hoy, ${min} PJ). En los partidos de a dos (2 vs 1, 2 vs 2) el resultado y los goles del lado cuentan para cada jugador de ese lado.</p>`;
 }
 
 function viewH2H(){
