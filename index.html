@@ -174,6 +174,12 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 .row-btns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
 .row-btns .btn{background:var(--surface)}
 .file-btn input{display:none}
+.paste-zone{display:block;border:2px dashed var(--line);border-radius:var(--r-m);background:var(--surface);padding:18px 16px;text-align:center;margin-bottom:12px;cursor:text}
+.paste-zone b{display:block;font:700 20px/1.2 var(--display);margin-bottom:4px}
+.paste-zone span{font-size:13.5px;color:var(--muted)}
+.paste-zone:focus,.stats-box.drop .paste-zone{border-color:var(--accent);background:var(--accent-soft);outline:none}
+.stats-box.drop{box-shadow:inset 0 0 0 2px var(--accent)}
+kbd{font:600 12px/1 var(--body);background:var(--surface-2);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:2px 6px;color:var(--ink)}
 .reading{display:flex;align-items:center;gap:10px;font-weight:600;margin-top:12px}
 .reading::before{content:"";width:18px;height:18px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -633,6 +639,11 @@ const emptyStatSide = () => Object.fromEntries(STAT_ROWS.map(([k]) => [k, null])
 const hasStats = m => !!(m.stats && (m.stats.home || m.stats.away));
 const isNum = v => typeof v === 'number' && isFinite(v);
 
+const isMac = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent);
+const touchFirst = matchMedia('(pointer: coarse)').matches;
+const canReadClipboard = !!navigator.clipboard?.read;
+const imageIn = list => [...(list || [])].find(f => f && f.type && f.type.startsWith('image/'));
+
 function statsBlock(f){
   const fileBtn = (label, cls) => `<label class="btn file-btn ${cls}">${label}<input type="file" accept="image/*" data-shot></label>`;
   const head = sd => f[sd].players.length ? sideNames(f[sd]) : (sd === 'home' ? 'Local' : 'Visitante');
@@ -644,10 +655,16 @@ function statsBlock(f){
         ${STAT_ROWS.map(([k, label]) => `<label for="st-h-${k}">${label}</label>${['home','away'].map(sd =>
           `<input id="st-${sd[0]}-${k}" type="number" inputmode="numeric" min="0" max="${k === 'possession' ? 100 : 999}" data-stat="${sd}.${k}" value="${f.stats[sd]?.[k] ?? ''}" aria-label="${label} de ${sd === 'home' ? 'local' : 'visitante'}">`).join('')}`).join('')}
       </div>
-      <div class="row-btns">${fileBtn('Subir otra captura', 'small')}<button class="link" data-act="stats-swap">Invertir columnas</button><button class="link danger" data-act="stats-clear">Quitar datos</button></div>
+      <div class="row-btns">${fileBtn('Subir otra captura', 'small')}${canReadClipboard ? '<button class="btn small" data-act="paste-shot">📋 Pegar otra</button>' : ''}<button class="link" data-act="stats-swap">Invertir columnas</button><button class="link danger" data-act="stats-clear">Quitar datos</button></div>
       <p class="hint">Revisá que coincidan con la captura. La columna izquierda de la pantalla del PES (J1) se carga como local.${ui.shotModel ? ` Leído con ${esc(ui.shotModel)}.` : ''}</p>`
-    : `<p class="hint" style="margin:0 0 12px">Subí una captura o foto de la pantalla "Datos del partido" del PES y se completa sola. Con esos datos se arma la pestaña Stats.</p>
-      <div class="row-btns">${fileBtn('📷 Subir captura', '')}<button class="link" data-act="stats-manual">Cargar a mano</button></div>`}
+    : `<div class="paste-zone" tabindex="0" aria-label="Pegá acá la captura de Datos del partido">
+        <b>📋 Pegá la captura acá</b>
+        <span>${touchFirst
+          ? 'Copiá la captura de "Datos del partido" y tocá Pegar, o subila desde la galería.'
+          : `Copiala con Lightshot (o Impr Pant) y apretá <kbd>${isMac ? '⌘' : 'Ctrl'}</kbd>+<kbd>V</kbd> en cualquier parte de esta pantalla. También podés arrastrar la imagen hasta acá.`}</span>
+      </div>
+      <div class="row-btns">${canReadClipboard ? '<button class="btn" data-act="paste-shot">📋 Pegar</button>' : ''}${fileBtn('📷 Subir archivo', '')}<button class="link" data-act="stats-manual">Cargar a mano</button></div>
+      <p class="hint">Se completan solos los números y alimentan la pestaña Stats.</p>`}
     ${ui.shotBusy ? '<div class="reading">Leyendo la captura…</div>' : ''}
     ${ui.shot ? `<img class="shot" src="${ui.shot}" alt="Captura subida">` : ''}
   </div>`;
@@ -1206,6 +1223,16 @@ const actions = {
     if (f.stats) [f.stats.home, f.stats.away] = [f.stats.away, f.stats.home];
     render();
   },
+  // Botón Pegar (sirve sobre todo en el celular, donde no hay Ctrl+V).
+  'paste-shot': async () => {
+    try {
+      for (const it of await navigator.clipboard.read()){
+        const t = it.types.find(t => t.startsWith('image/'));
+        if (t) return readShot(await it.getType(t));
+      }
+      toast('No hay ninguna imagen copiada', true);
+    } catch { toast(`No se pudo leer el portapapeles. Probá con ${isMac ? '⌘' : 'Ctrl'}+V.`, true); }
+  },
   'stats-manual': () => { ui.form.stats = {home: emptyStatSide(), away: emptyStatSide()}; render(); },
   'stats-swap': () => { const s = ui.form.stats; [s.home, s.away] = [s.away, s.home]; render(); },
   'stats-clear': () => { ui.form.stats = null; ui.shot = null; render(); },
@@ -1353,6 +1380,30 @@ document.addEventListener('change', e => {
   if (el.matches('input[data-shot]')){ const file = el.files?.[0]; el.value = ''; readShot(file); }
   if (el.dataset.bind === 'date' && !el.value){ ui.form.date = today(); el.value = ui.form.date; }
   if (el.dataset.cfg && el.type === 'checkbox') render();
+});
+
+// Pegar la captura con Ctrl+V / ⌘+V en cualquier parte de Cargar (Lightshot la deja en el portapapeles).
+document.addEventListener('paste', e => {
+  if (ui.tab !== 'cargar' || !ui.form || ui.shotBusy) return;
+  const items = [...(e.clipboardData?.items || [])].filter(i => i.kind === 'file');
+  const file = imageIn(items.map(i => i.getAsFile()));
+  if (!file) return; // texto común: que se pegue normal
+  e.preventDefault();
+  readShot(file);
+});
+// Arrastrar la imagen hasta el recuadro de Datos del partido.
+document.addEventListener('dragover', e => {
+  const box = e.target.closest?.('.stats-box');
+  if (!box || ui.shotBusy || ![...(e.dataTransfer?.types || [])].includes('Files')) return;
+  e.preventDefault(); box.classList.add('drop');
+});
+document.addEventListener('dragleave', e => { if (!e.relatedTarget?.closest?.('.stats-box')) document.querySelector('.stats-box.drop')?.classList.remove('drop'); });
+document.addEventListener('drop', e => {
+  const box = e.target.closest?.('.stats-box');
+  if (!box) return;
+  e.preventDefault(); box.classList.remove('drop');
+  const file = imageIn(e.dataTransfer?.files);
+  file ? readShot(file) : toast('Eso no es una imagen', true);
 });
 
 // Si alguien cargó un partido desde otro dispositivo, se ve al volver a la app.

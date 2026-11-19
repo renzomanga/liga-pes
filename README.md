@@ -32,7 +32,7 @@ Cada dispositivo lo pide una vez y lo recuerda. Ver estadísticas no requiere PI
 
 ## Datos del partido y pestaña Stats
 
-Al cargar un partido se puede subir una captura o foto de la pantalla "Datos del partido" del PES (disparos, al arco, penales, tiros libres, córners, faltas, offsides, tarjetas y posesión). Un modelo de Gemini la lee y completa los números, que se pueden corregir antes de guardar. La columna izquierda de la pantalla (J1) se carga como local; si quedó al revés, está el botón "Invertir columnas". La imagen no se guarda: solo los números, dentro del partido.
+Al cargar un partido se puede pegar (Ctrl+V / ⌘+V, por ejemplo después de copiarla con Lightshot), arrastrar o subir una captura o foto de la pantalla "Datos del partido" del PES. En el celular está el botón "Pegar" (disparos, al arco, penales, tiros libres, córners, faltas, offsides, tarjetas y posesión). Un modelo de Gemini la lee y completa los números, que se pueden corregir antes de guardar. La columna izquierda de la pantalla (J1) se carga como local; si quedó al revés, está el botón "Invertir columnas". La imagen no se guarda: solo los números, dentro del partido.
 
 Para que funcione, en **Settings → Environment Variables** de Vercel:
 
